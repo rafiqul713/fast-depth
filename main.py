@@ -7,6 +7,9 @@ import torch
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
+import models
+from dataloaders.nyu import NYUDataset
+
 cudnn.benchmark = True
 
 import models
@@ -22,6 +25,49 @@ fieldnames = ['rmse', 'mae', 'delta1', 'absrel',
 best_fieldnames = ['best_epoch'] + fieldnames
 best_result = Result()
 best_result.set_to_worst()
+
+def create_data_loaders(args):
+    # Data loading code
+    print("=> creating data loaders ...")
+    traindir = os.path.join('data', args.data, 'train')
+    valdir = os.path.join('data', args.data, 'val')
+    train_loader = None
+    val_loader = None
+
+    if args.data == 'nyudepthv2':
+        if not args.evaluate:
+            train_dataset = NYUDataset(traindir, type='train',
+                modality=args.modality)
+        val_dataset = NYUDataset(valdir, type='val',
+            modality=args.modality)
+
+    elif args.data == 'kitti':
+        from dataloaders.kitti_dataloader import KITTIDataset
+        if not args.evaluate:
+            train_dataset = KITTIDataset(traindir, type='train',
+                modality=args.modality)
+        val_dataset = KITTIDataset(valdir, type='val',
+            modality=args.modality)
+
+    else:
+        raise RuntimeError('Dataset not found.' +
+                           'The dataset must be either of nyudepthv2 or kitti.')
+
+    # set batch size to be 1 for validation
+    val_loader = torch.utils.data.DataLoader(val_dataset,
+        batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True)
+
+    # put construction of train loader here, for those who are interested in testing only
+    if not args.evaluate:
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=args.batch_size, shuffle=True,
+            num_workers=args.workers, pin_memory=True, sampler=None,
+            worker_init_fn=lambda work_id:np.random.seed(work_id))
+            # worker_init_fn ensures different sampling patterns for each data loading thread
+
+    print("=> data loaders created.")
+    return train_loader, val_loader
+
 
 def main():
     global args, best_result, output_directory, train_csv, test_csv
@@ -58,6 +104,90 @@ def main():
         output_directory = os.path.dirname(args.evaluate)
         validate(val_loader, model, args.start_epoch, write_to_file=False)
         return
+
+    # training mode
+    # resume from a check point
+    elif args.resume:
+        chkpt_path = args.resume
+        assert os.path.isfile(chkpt_path),"=> no checkpoint found at '{}'".format(chkpt_path)
+        print("=> loading checkpoint '{}'".format(chkpt_path))
+        checkpoint = torch.load(chkpt_path)
+        args = checkpoint['args']
+        start_epoch = checkpoint['epoch'] + 1
+        best_result = checkpoint['best_result']
+        model = checkpoint['model']
+        optimizer = checkpoint['optimizer']
+        output_directory = os.path.dirname(os.path.abspath(chkpt_path))
+        print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
+        train_loader, val_loader = create_data_loaders(args)
+        args.resume = True
+
+        # create new model
+    elif args.train:
+        train_loader, val_loader = create_data_loaders(args)
+        print("=> creating Model ({}-{}) ...".format(args.arch, args.decoder))
+        in_channels = len(args.modality)
+        if args.arch == 'MobileNet':
+            model = models.MobileNetSkipAdd(output_size=train_loader.dataset.output_size)
+        else:
+            print("Select proper model")
+            exit(0)
+        print("=> model created.")
+        optimizer = torch.optim.SGD(model.parameters(), args.lr, \
+                                    momentum=args.momentum, weight_decay=args.weight_decay)
+
+        # model = torch.nn.DataParallel(model).cuda() # for multi-gpu training
+        model = model.cuda()
+
+        # define loss function (criterion) and optimizer
+    if args.criterion == 'l2':
+        criterion = criteria.MaskedMSELoss().cuda()
+    elif args.criterion == 'l1':
+        criterion = criteria.MaskedL1Loss().cuda()
+
+        # create results folder, if not already exists
+    output_directory = utils.get_output_directory(args)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    train_csv = os.path.join(output_directory, 'train.csv')
+    test_csv = os.path.join(output_directory, 'test.csv')
+    best_txt = os.path.join(output_directory, 'best.txt')
+
+    # create new csv files with only header
+    if not args.resume:
+        with open(train_csv, 'w') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+        with open(test_csv, 'w') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+
+    for epoch in range(start_epoch, args.epochs):
+        utils.adjust_learning_rate(optimizer, epoch, args.lr)
+        train(train_loader, model, criterion, optimizer, epoch)  # train for one epoch
+        result, img_merge = validate(val_loader, model, epoch)  # evaluate on validation set
+
+        # remember best rmse and save checkpoint
+        is_best = result.rmse < best_result.rmse
+        if is_best:
+            best_result = result
+            with open(best_txt, 'w') as txtfile:
+                txtfile.write(
+                    "epoch={}\nmse={:.3f}\nrmse={:.3f}\nabsrel={:.3f}\nlg10={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nt_gpu={:.4f}\n".
+                    format(epoch, result.mse, result.rmse, result.absrel, result.lg10, result.mae, result.delta1,
+                           result.gpu_time))
+            if img_merge is not None:
+                img_filename = output_directory + '/comparison_best.png'
+                utils.save_image(img_merge, img_filename)
+
+        utils.save_checkpoint({
+            'args': args,
+            'epoch': epoch,
+            'arch': args.arch,
+            'model': model,
+            'best_result': best_result,
+            'optimizer': optimizer,
+        }, is_best, epoch, output_directory)
 
 
 def validate(val_loader, model, epoch, write_to_file=True):
