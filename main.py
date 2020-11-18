@@ -191,6 +191,52 @@ def main():
         }, is_best, epoch, output_directory)
 
 
+def train(train_loader, model, criterion, optimizer, epoch):
+    average_meter = AverageMeter()
+    model.train() # switch to train mode
+    end = time.time()
+    for i, (input, target) in enumerate(train_loader):
+
+        input, target = input.cuda(), target.cuda()
+        torch.cuda.synchronize()
+        data_time = time.time() - end
+
+        # compute pred
+        end = time.time()
+        pred = model(input)
+        loss = criterion(pred, target)
+        optimizer.zero_grad()
+        loss.backward() # compute gradient and do SGD step
+        optimizer.step()
+        torch.cuda.synchronize()
+        gpu_time = time.time() - end
+
+        # measure accuracy and record loss
+        result = Result()
+        result.evaluate(pred.data, target.data)
+        average_meter.update(result, gpu_time, data_time, input.size(0))
+        end = time.time()
+
+        if (i + 1) % args.print_freq == 0:
+            print('=> output: {}'.format(output_directory))
+            print('Train Epoch: {0} [{1}/{2}]\t'
+                  't_Data={data_time:.3f}({average.data_time:.3f}) '
+                  't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
+                  'RMSE={result.rmse:.2f}({average.rmse:.2f}) '
+                  'MAE={result.mae:.2f}({average.mae:.2f}) '
+                  'Delta1={result.delta1:.3f}({average.delta1:.3f}) '
+                  'REL={result.absrel:.3f}({average.absrel:.3f}) '
+                  'Lg10={result.lg10:.3f}({average.lg10:.3f}) '.format(
+                  epoch, i+1, len(train_loader), data_time=data_time,
+                  gpu_time=gpu_time, result=result, average=average_meter.average()))
+
+    avg = average_meter.average()
+    with open(train_csv, 'a') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
+            'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
+            'gpu_time': avg.gpu_time, 'data_time': avg.data_time})
+
 def validate(val_loader, model, epoch, write_to_file=True):
     average_meter = AverageMeter()
     model.eval() # switch to evaluate mode
