@@ -81,3 +81,11 @@ def add_row(img_merge, row):
 def save_image(img_merge, filename):
     img_merge = Image.fromarray(img_merge.astype('uint8'))
     img_merge.save(filename)
+
+def get_output_directory(args):
+    output_directory = os.path.join('results',
+        '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}'.
+        format(args.data, args.sparsifier, args.num_samples, args.modality, \
+            args.arch, args.decoder, args.criterion, args.lr, args.batch_size, \
+            args.pretrained))
+    return output_directory
