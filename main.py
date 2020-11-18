@@ -8,6 +8,7 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 import models
+from loss_function import *
 from dataloaders.nyu import NYUDataset
 
 cudnn.benchmark = True
@@ -141,9 +142,9 @@ def main():
 
         # define loss function (criterion) and optimizer
     if args.criterion == 'l2':
-        criterion = criteria.MaskedMSELoss().cuda()
+        criterion = MaskedMSELoss().cuda()
     elif args.criterion == 'l1':
-        criterion = criteria.MaskedL1Loss().cuda()
+        criterion = MaskedL1Loss().cuda()
 
         # create results folder, if not already exists
     output_directory = utils.get_output_directory(args)
