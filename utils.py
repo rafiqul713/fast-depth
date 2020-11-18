@@ -5,29 +5,55 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import math
-
+from models import Decoder
 cmap = plt.cm.viridis
 
 
 def parse_command():
     data_names = ['nyudepthv2']
-
+    model_names = ['MobileNet','resnet18', 'resnet50']
+    loss_names=['l1', 'l2']
+    decoder_names= Decoder.names
     from dataloaders.dataloader import MyDataloader
     modality_names = MyDataloader.modality_names
 
     import argparse
     parser = argparse.ArgumentParser(description='FastDepth')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='MobileNet', choices=model_names,
+                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet18)')
     parser.add_argument('--data', metavar='DATA', default='nyudepthv2',
                         choices=data_names,
                         help='dataset: ' + ' | '.join(data_names) + ' (default: nyudepthv2)')
     parser.add_argument('--modality', '-m', metavar='MODALITY', default='rgb', choices=modality_names,
                         help='modality: ' + ' | '.join(modality_names) + ' (default: rgb)')
-    parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
-                        help='number of data loading workers (default: 16)')
-    parser.add_argument('--print-freq', '-p', default=50, type=int,
-                        metavar='N', help='print frequency (default: 50)')
-    parser.add_argument('-e', '--evaluate', default='', type=str, metavar='PATH',)
-    parser.add_argument('--gpu', default='0', type=str, metavar='N', help="gpu id")
+    parser.add_argument('-s', '--num-samples', default=0, type=int, metavar='N',
+                        help='number of sparse depth samples (default: 0)')
+    parser.add_argument('--max-depth', default=-1.0, type=float, metavar='D',
+                        help='cut-off depth of sparsifier, negative values means infinity (default: inf [m])')
+    parser.add_argument('--decoder', '-d', metavar='DECODER', default='deconv2', choices=decoder_names,
+                        help='decoder: ' + ' | '.join(decoder_names) + ' (default: deconv2)')
+    parser.add_argument('-j', '--workers', default=10, type=int, metavar='N',
+                        help='number of data loading workers (default: 10)')
+    parser.add_argument('--epochs', default=15, type=int, metavar='N',
+                        help='number of total epochs to run (default: 15)')
+    parser.add_argument('-c', '--criterion', metavar='LOSS', default='l1', choices=loss_names,
+                        help='loss function: ' + ' | '.join(loss_names) + ' (default: l1)')
+    parser.add_argument('-b', '--batch-size', default=8, type=int, help='mini-batch size (default: 8)')
+    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
+                        metavar='LR', help='initial learning rate (default 0.01)')
+    parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+                        help='momentum')
+    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
+                        metavar='W', help='weight decay (default: 1e-4)')
+    parser.add_argument('--print-freq', '-p', default=10, type=int,
+                        metavar='N', help='print frequency (default: 10)')
+    parser.add_argument('--resume', default='', type=str, metavar='PATH',
+                        help='path to latest checkpoint (default: none)')
+    parser.add_argument('-e', '--evaluate', dest='evaluate', type=str, default='',
+                        help='evaluate model on validation set')
+    parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
+                        help='not to use ImageNet pre-trained weights')
+    parser.set_defaults(pretrained=True)
     parser.set_defaults(cuda=True)
 
     args = parser.parse_args()
