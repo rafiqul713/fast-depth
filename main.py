@@ -10,6 +10,7 @@ import torch.optim
 import models
 from loss_function import *
 from dataloaders.nyu import NYUDataset
+from dataloaders.kitti import KITTIDataset
 
 cudnn.benchmark = True
 
@@ -43,7 +44,6 @@ def create_data_loaders(args):
             modality=args.modality)
 
     elif args.data == 'kitti':
-        from dataloaders.kitti_dataloader import KITTIDataset
         if not args.evaluate:
             train_dataset = KITTIDataset(traindir, type='train',
                 modality=args.modality)
@@ -131,8 +131,8 @@ def main():
         if args.arch == 'MobileNet':
             model = models.MobileNetSkipAdd(output_size=train_loader.dataset.output_size)
         else:
-            print("Select proper model")
-            exit(0)
+            model = models.MobileNetSkipAdd(output_size=train_loader.dataset.output_size) #by default MobileNet
+
         print("=> model created.")
         optimizer = torch.optim.SGD(model.parameters(), args.lr, \
                                     momentum=args.momentum, weight_decay=args.weight_decay)
@@ -163,32 +163,36 @@ def main():
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-    for epoch in range(start_epoch, args.epochs):
-        utils.adjust_learning_rate(optimizer, epoch, args.lr)
-        train(train_loader, model, criterion, optimizer, epoch)  # train for one epoch
-        result, img_merge = validate(val_loader, model, epoch)  # evaluate on validation set
+    #Training is strarted from here
+    if args.train:
+        start = 0
+        for epoch in range(start, args.epochs):
+            utils.adjust_learning_rate(optimizer, epoch, args.lr)
+            train(train_loader, model, criterion, optimizer, epoch)  # train for one epoch
+            result, img_merge = validate(val_loader, model, epoch)  # evaluate on validation set
 
-        # remember best rmse and save checkpoint
-        is_best = result.rmse < best_result.rmse
-        if is_best:
-            best_result = result
-            with open(best_txt, 'w') as txtfile:
-                txtfile.write(
-                    "epoch={}\nmse={:.3f}\nrmse={:.3f}\nabsrel={:.3f}\nlg10={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nt_gpu={:.4f}\n".
-                    format(epoch, result.mse, result.rmse, result.absrel, result.lg10, result.mae, result.delta1,
-                           result.gpu_time))
-            if img_merge is not None:
-                img_filename = output_directory + '/comparison_best.png'
-                utils.save_image(img_merge, img_filename)
+            # remember best rmse and save checkpoint
+            is_best = result.rmse < best_result.rmse
+            if is_best:
+                best_result = result
+                with open(best_txt, 'w') as txtfile:
+                    txtfile.write(
+                        "epoch={}\nmse={:.3f}\nrmse={:.3f}\nabsrel={:.3f}\nlg10={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nt_gpu={:.4f}\n".
+                            format(epoch, result.mse, result.rmse, result.absrel, result.lg10, result.mae,
+                                   result.delta1,
+                                   result.gpu_time))
+                if img_merge is not None:
+                    img_filename = output_directory + '/comparison_best.png'
+                    utils.save_image(img_merge, img_filename)
 
-        utils.save_checkpoint({
-            'args': args,
-            'epoch': epoch,
-            'arch': args.arch,
-            'model': model,
-            'best_result': best_result,
-            'optimizer': optimizer,
-        }, is_best, epoch, output_directory)
+            utils.save_checkpoint({
+                'args': args,
+                'epoch': epoch,
+                'arch': args.arch,
+                'model': model,
+                'best_result': best_result,
+                'optimizer': optimizer,
+            }, is_best, epoch, output_directory)
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
@@ -236,6 +240,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
             'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
             'gpu_time': avg.gpu_time, 'data_time': avg.data_time})
+
 
 def validate(val_loader, model, epoch, write_to_file=True):
     average_meter = AverageMeter()
