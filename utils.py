@@ -100,3 +100,9 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         prev_checkpoint_filename = os.path.join(output_directory, 'checkpoint-' + str(epoch-1) + '.pth.tar')
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
+
+def adjust_learning_rate(optimizer, epoch, lr_init):
+    """Sets the learning rate to the initial LR decayed by 10 every 5 epochs"""
+    lr = lr_init * (0.1 ** (epoch // 5))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
