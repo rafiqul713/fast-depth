@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+#Mean Square Error
 class MaskedMSELoss(nn.Module):
     def __init__(self):
         super(MaskedMSELoss, self).__init__()
@@ -14,6 +15,7 @@ class MaskedMSELoss(nn.Module):
         self.loss = (diff ** 2).mean()
         return self.loss
 
+#Mean absolute Error
 class MaskedL1Loss(nn.Module):
     def __init__(self):
         super(MaskedL1Loss, self).__init__()
