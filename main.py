@@ -11,7 +11,7 @@ import models
 from loss_function import *
 from dataloaders.nyu import NYUDataset
 from dataloaders.kitti import KITTIDataset
-
+from models import ResNetSkipAdd,ResNet
 cudnn.benchmark = True
 
 import models
@@ -20,7 +20,7 @@ import utils
 
 args = utils.parse_command()
 print(args)
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu # Set the GPU.
+os.environ["CUDA_VISIBLE_DEVICES"] ='0' #args.gpu # Set the GPU.
 
 fieldnames = ['rmse', 'mae', 'delta1', 'absrel',
             'lg10', 'mse', 'delta2', 'delta3', 'data_time', 'gpu_time']
@@ -31,16 +31,20 @@ best_result.set_to_worst()
 def create_data_loaders(args):
     # Data loading code
     print("=> creating data loaders ...")
-    traindir = os.path.join('data', args.data, 'train')
-    valdir = os.path.join('data', args.data, 'val')
+    datasets='/content/drive/MyDrive'
+    #traindir = os.path.join(datasets,'Datasets', args.data, 'train')
+    #valdir = os.path.join(datasets,'Datasets', args.data, 'val')
+    traindir=os.path.join(datasets, 'Datasets','Nyudepthv2Previous',args.data, 'train')
+    valdir= os.path.join(datasets, 'Datasets','Nyudepthv2Previous',args.data, 'val')
     train_loader = None
     val_loader = None
 
     if args.data == 'nyudepthv2':
         if not args.evaluate:
-            train_dataset = NYUDataset(traindir, type='train',
+            train_dataset = NYUDataset(traindir, split='train',
                 modality=args.modality)
-        val_dataset = NYUDataset(valdir, type='val',
+            
+        val_dataset = NYUDataset(valdir, split='val',
             modality=args.modality)
 
     elif args.data == 'kitti':
@@ -60,6 +64,7 @@ def create_data_loaders(args):
 
     # put construction of train loader here, for those who are interested in testing only
     if not args.evaluate:
+      
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True, sampler=None,
@@ -72,21 +77,29 @@ def create_data_loaders(args):
 
 def main():
     global args, best_result, output_directory, train_csv, test_csv
-
-    # Data loading code
-    print("=> creating data loaders...")
-    valdir = os.path.join('..', 'data', args.data, 'val')
-
+    # Data loading code    
+    datasets='/content/drive/MyDrive'
+    #valdir = os.path.join(datasets, 'Datasets', args.data, 'val')
+    #valdir = '/content/drive/MyDrive/Datasets/Nyudepthv2Previous/nyudepthv2/val/official/'
+    valdir = os.path.join(datasets, 'Datasets','Nyudepthv2Previous',args.data, 'val')
+    
+   
     if args.data == 'nyudepthv2':
         from dataloaders.nyu import NYUDataset
         val_dataset = NYUDataset(valdir, split='val', modality=args.modality)
+    
+    elif args.data == 'kitti':
+        from dataloaders.kitti import KITTIDataset
+        val_dataset = KITTIDataset(valdir, type='val',
+            modality=args.modality)
     else:
         raise RuntimeError('Dataset not found.')
 
+    
     # set batch size to be 1 for validation
     val_loader = torch.utils.data.DataLoader(val_dataset,
         batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True)
-    print("=> data loaders created.")
+    print("=> validation loaders created.")
 
     # evaluation mode
     if args.evaluate:
@@ -104,11 +117,13 @@ def main():
             args.start_epoch = 0
         output_directory = os.path.dirname(args.evaluate)
         validate(val_loader, model, args.start_epoch, write_to_file=False)
+        
         return
 
     # training mode
     # resume from a check point
     elif args.resume:
+        print("Resume")
         chkpt_path = args.resume
         assert os.path.isfile(chkpt_path),"=> no checkpoint found at '{}'".format(chkpt_path)
         print("=> loading checkpoint '{}'".format(chkpt_path))
@@ -123,13 +138,21 @@ def main():
         train_loader, val_loader = create_data_loaders(args)
         args.resume = True
 
-        # create new model
+    # create new model
     elif args.train:
+        print("Inside Train 1----------->")
         train_loader, val_loader = create_data_loaders(args)
         print("=> creating Model ({}-{}) ...".format(args.arch, args.decoder))
         in_channels = len(args.modality)
         if args.arch == 'MobileNet':
-            model = models.MobileNetSkipAdd(output_size=train_loader.dataset.output_size)
+            #model = models.MobileNetSkipAdd(output_size=train_loader.dataset.output_size)
+            model=ResNetSkipAdd(layers=50,output_size=train_loader.dataset.output_size,
+                in_channels=in_channels, pretrained=args.pretrained)
+            #print("Mobile Net model ",str(train_loader.dataset.output_size)
+        elif args.arch=='resnet50':
+            model=ResNet(layers=50,decoder=args.decoder,output_size=train_loader.dataset.output_size,
+                in_channels=in_channels, pretrained=args.pretrained)
+            
         else:
             model = models.MobileNetSkipAdd(output_size=train_loader.dataset.output_size) #by default MobileNet
 
@@ -147,7 +170,10 @@ def main():
         criterion = MaskedL1Loss().cuda()
 
         # create results folder, if not already exists
+    print("Arguments ")
+    print(args)
     output_directory = utils.get_output_directory(args)
+  
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
     train_csv = os.path.join(output_directory, 'train.csv')
@@ -164,7 +190,8 @@ def main():
             writer.writeheader()
 
     #Training is strarted from here
-    if args.train:
+    if args.train==True:
+        print("Training...........(args.train)",args.train)
         start = 0
         for epoch in range(start, args.epochs):
             utils.adjust_learning_rate(optimizer, epoch, args.lr)
@@ -193,6 +220,41 @@ def main():
                 'best_result': best_result,
                 'optimizer': optimizer,
             }, is_best, epoch, output_directory)
+      
+    elif args.resume==True:
+        print("Resume......................")
+        start=start_epoch
+        for epoch in range(start, args.epochs):
+            print("Epoch inside resume ",epoch)
+            utils.adjust_learning_rate(optimizer, epoch, args.lr)
+            train(train_loader, model, criterion, optimizer, epoch)  # train for one epoch
+            result, img_merge = validate(val_loader, model, epoch)  # evaluate on validation set
+
+            # remember best rmse and save checkpoint
+            is_best = result.rmse < best_result.rmse
+            if is_best:
+                best_result = result
+                with open(best_txt, 'w') as txtfile:
+                    txtfile.write(
+                        "epoch={}\nmse={:.3f}\nrmse={:.3f}\nabsrel={:.3f}\nlg10={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nt_gpu={:.4f}\n".
+                            format(epoch, result.mse, result.rmse, result.absrel, result.lg10, result.mae,
+                                   result.delta1,
+                                   result.gpu_time))
+                if img_merge is not None:
+                    img_filename = output_directory + '/comparison_best.png'
+                    utils.save_image(img_merge, img_filename)
+
+            utils.save_checkpoint({
+                'args': args,
+                'epoch': epoch,
+                'arch': args.arch,
+                'model': model,
+                'best_result': best_result,
+                'optimizer': optimizer,
+            }, is_best, epoch, output_directory)
+      
+      
+          
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
@@ -255,6 +317,7 @@ def validate(val_loader, model, epoch, write_to_file=True):
         end = time.time()
         with torch.no_grad():
             pred = model(input)
+        #print("Predicted shape ",pred.shape) #(1,1,224,224)
         # torch.cuda.synchronize()
         gpu_time = time.time() - end
 
@@ -269,12 +332,26 @@ def validate(val_loader, model, epoch, write_to_file=True):
 
         if args.modality == 'rgb':
             rgb = input
+        
+        
+        output_dir="/content/drive/MyDrive/Code/fast-depth/results2/"
+        filename_gt=output_dir+"gt_"+str(i)+".jpg"
+        filename_predicted=output_dir+"predicted_"+str(i)+".jpg"
+        
+        gt,predicted=utils.get_depth_map(rgb,target,pred)
+        print("Predicted shape ",predicted.shape)
+        import scipy.misc
+        #scipy.misc.toimage(gt).save(filename_gt)
+        #scipy.misc.toimage(predicted).save(filename_predicted)
 
+
+
+        
         if i == 0:
-            img_merge = utils.merge_into_row(rgb, target, pred)
+            img_merge= utils.merge_into_row(rgb, target, pred)
         elif (i < 8*skip) and (i % skip == 0):
             row = utils.merge_into_row(rgb, target, pred)
-            img_merge = utils.add_row(img_merge, row)
+            img_merge= utils.add_row(img_merge, row)
         elif i == 8*skip:
             filename = output_directory + '/comparison_' + str(epoch) + '.png'
             utils.save_image(img_merge, filename)
