@@ -16,18 +16,22 @@ def parse_command():
     decoder_names= Decoder.names
     from dataloaders.dataloader import MyDataloader
     modality_names = MyDataloader.modality_names
+    print("Modality names ",modality_names)
+    
 
     import argparse
     parser = argparse.ArgumentParser(description='FastDepth')
+    
+    
     parser.add_argument('--arch', '-a', metavar='ARCH', default='MobileNet', choices=model_names,
                         help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet18)')
     parser.add_argument('--data', metavar='DATA', default='nyudepthv2',
                         choices=data_names,
                         help='dataset: ' + ' | '.join(data_names) + ' (default: nyudepthv2)')
-    parser.add_argument('--modality', '-m', metavar='MODALITY', default='rgb', choices=modality_names,
-                        help='modality: ' + ' | '.join(modality_names) + ' (default: rgb)')
     parser.add_argument('-s', '--num-samples', default=0, type=int, metavar='N',
                         help='number of sparse depth samples (default: 0)')
+    parser.add_argument('--modality', '-m', metavar='MODALITY', default='rgb', choices=modality_names,
+                        help='modality: ' + ' | '.join(modality_names) + ' (default: rgb)')
     parser.add_argument('--max-depth', default=-1.0, type=float, metavar='D',
                         help='cut-off depth of sparsifier, negative values means infinity (default: inf [m])')
     parser.add_argument('--decoder', '-d', metavar='DECODER', default='deconv2', choices=decoder_names,
@@ -51,15 +55,21 @@ def parse_command():
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', type=str, default='',
                         help='evaluate model on validation set')
-    parser.add_argument('-t', '--train', default='', type=str, )
-    parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
+    parser.add_argument('-t', '--train', default='', type=str )
+    parser.add_argument('-pt','--no-pretrain', dest='pretrained', action='store_false',
                         help='not to use ImageNet pre-trained weights')
+    
     parser.set_defaults(pretrained=True)
-    parser.set_defaults(cuda=True)
-
+    #parser.set_defaults(cuda=True)
     args = parser.parse_args()
+    print("Train--->",args.train)
+    if args.modality == 'rgb' and args.num_samples != 0:
+        print("number of samples is forced to be 0 when input modality is rgb")
+        args.num_samples = 0
+    if args.modality == 'rgb' and args.max_depth != 0.0:
+        print("max depth is forced to be 0.0 when input modality is rgb/rgbd")
+        args.max_depth = 0.0
     return args
-
 
 def colored_depthmap(depth, d_min=None, d_max=None):
     if d_min is None:
@@ -78,10 +88,28 @@ def merge_into_row(input, depth_target, depth_pred):
     d_min = min(np.min(depth_target_cpu), np.min(depth_pred_cpu))
     d_max = max(np.max(depth_target_cpu), np.max(depth_pred_cpu))
     depth_target_col = colored_depthmap(depth_target_cpu, d_min, d_max)
-    depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)
+    depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)    
     img_merge = np.hstack([rgb, depth_target_col, depth_pred_col])
     
+    #file_locP="/content/drive/MyDrive/Code/fast-depth/results2/sampleP.jpg"
+    #file_locT="/content/drive/MyDrive/Code/fast-depth/results2/sampleT.jpg"
+    file_locInput="/content/drive/MyDrive/Code/fast-depth/results2/sampleInput.jpg"
+    #import scipy.misc
+    #scipy.misc.toimage(depth_pred_col).save(file_locP)
+    #scipy.misc.toimage(depth_target_col).save(file_locT)
+    
+    
     return img_merge
+
+def get_depth_map(input, depth_target, depth_pred):
+    rgb = 255 * np.transpose(np.squeeze(input.cpu().numpy()), (1,2,0)) # H, W, C
+    depth_target_cpu = np.squeeze(depth_target.cpu().numpy())
+    depth_pred_cpu = np.squeeze(depth_pred.data.cpu().numpy())
+    d_min = min(np.min(depth_target_cpu), np.min(depth_pred_cpu))
+    d_max = max(np.max(depth_target_cpu), np.max(depth_pred_cpu))
+    depth_target_col = colored_depthmap(depth_target_cpu, d_min, d_max)
+    depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)    
+    return depth_target_col,depth_pred_col
 
 
 def merge_into_row_with_gt(input, depth_input, depth_target, depth_pred):
@@ -95,7 +123,6 @@ def merge_into_row_with_gt(input, depth_input, depth_target, depth_pred):
     depth_input_col = colored_depthmap(depth_input_cpu, d_min, d_max)
     depth_target_col = colored_depthmap(depth_target_cpu, d_min, d_max)
     depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)
-
     img_merge = np.hstack([rgb, depth_input_col, depth_target_col, depth_pred_col])
 
     return img_merge
@@ -110,11 +137,13 @@ def save_image(img_merge, filename):
     img_merge.save(filename)
 
 def get_output_directory(args):
+    print("Inside outout directory method")
     output_directory = os.path.join('results',
-        '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}'.
-        format(args.data, args.sparsifier, args.num_samples, args.modality, \
+        '{}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}'.
+        format(args.data,  args.num_samples, args.modality, \
             args.arch, args.decoder, args.criterion, args.lr, args.batch_size, \
             args.pretrained))
+    print("Output directory ",output_directory)
     return output_directory
 
 def save_checkpoint(state, is_best, epoch, output_directory):
