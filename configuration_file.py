@@ -1,3 +1,4 @@
-mobilenet_path="/home/rafiqul/Documents/Thesis/Code/GitHub/masters_thesis/Fast Depth Previous Code/mobilnet/model_best.pth.tar"
-GPU=False
-datasets_path="/media/rafiqul/D662570A6256EF2D/Datasets"
+mobilenet_path="./mobilenet/model_best.pth.tar"
+GPU=True
+MULTI_GPU=False
+datasets_path="/content/drive/MyDrive/Datasets"
